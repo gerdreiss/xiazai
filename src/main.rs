@@ -20,7 +20,26 @@ fn get_links(url: &str) -> Vec<String> {
 }
 
 fn download_file(url: &str, target_dir: &str) -> String {
-    let response = reqwest::blocking::get(url).expect("Failed to get response");
+    let mut retries = 3;
+    let mut response = None;
+
+    while retries > 0 {
+        match reqwest::blocking::get(url) {
+            Ok(resp) => {
+                response = Some(resp);
+                break;
+            }
+            Err(e) => {
+                eprintln!("Download failed: {}", e);
+                retries -= 1;
+                if retries > 0 {
+                    eprintln!("Retrying... ({} attempts left)", retries);
+                }
+            }
+        }
+    }
+
+    let response = response.expect("Failed to get response after retries");
     let headers = response.headers();
 
     // Retrieve the filename from the Content-Disposition header
@@ -79,18 +98,22 @@ fn main() {
             .join(link)
             .expect("Failed to join URL");
         println!("Following link: {}", full_link);
-        let first_link = get_links(&full_link.to_string());
 
-        if let Some(first_link) = first_link.get(0) {
+        let nested_links = get_links(&full_link.to_string());
+        let maybe_download_link = nested_links
+            .iter()
+            .find(|nested_link| nested_link.contains("DownRes"));
+
+        if let Some(download_link) = maybe_download_link {
             let first_link_full = Url::parse(&full_link.to_string())
                 .expect("Failed to parse full link")
-                .join(first_link)
+                .join(download_link)
                 .expect("Failed to join URL");
-            println!("First link on {}: {}", full_link, first_link_full);
+            println!("Download link on {}: {}", full_link, first_link_full);
             let filename = download_file(&first_link_full.to_string(), target_dir);
             println!("Downloaded file: {}", filename);
         } else {
-            println!("No links found on {}", full_link);
+            println!("No download links found on {}", full_link);
         }
     });
 }
